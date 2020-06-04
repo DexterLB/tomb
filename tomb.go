@@ -240,6 +240,7 @@ func (t *Tomb) Alive() bool {
 	return t.Err() == ErrStillAlive
 }
 
+// AliveNames returns the names of all children who are alive
 func (t *Tomb) AliveNames() []string {
 	result := make([]string, len(t.aliveNames))
 	i := 0
