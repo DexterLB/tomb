@@ -73,11 +73,12 @@ import (
 //
 // See the package documentation for details.
 type Tomb struct {
-	m      sync.Mutex
-	alive  int
-	dying  chan struct{}
-	dead   chan struct{}
-	reason error
+	m          sync.Mutex
+	alive      int
+	aliveNames map[string]struct{}
+	dying      chan struct{}
+	dead       chan struct{}
+	reason     error
 
 	// context.Context is available in Go 1.7+.
 	parent interface{}
@@ -100,6 +101,7 @@ func (t *Tomb) init() {
 	if t.dead == nil {
 		t.dead = make(chan struct{})
 		t.dying = make(chan struct{})
+		t.aliveNames = make(map[string]struct{})
 		t.reason = ErrStillAlive
 	}
 	t.m.Unlock()
@@ -146,7 +148,7 @@ func (t *Tomb) Wait() error {
 // Calling the Go method after all tracked goroutines return
 // causes a runtime panic. For that reason, calling the Go
 // method a second time out of a tracked goroutine is unsafe.
-func (t *Tomb) Go(f func() error) {
+func (t *Tomb) Go(f func() error, name string) {
 	t.init()
 	t.m.Lock()
 	defer t.m.Unlock()
@@ -156,14 +158,16 @@ func (t *Tomb) Go(f func() error) {
 	default:
 	}
 	t.alive++
-	go t.run(f)
+	t.aliveNames[name] = struct{}{}
+	go t.run(f, name)
 }
 
-func (t *Tomb) run(f func() error) {
+func (t *Tomb) run(f func() error, name string) {
 	err := f()
 	t.m.Lock()
 	defer t.m.Unlock()
 	t.alive--
+	delete(t.aliveNames, name)
 	if t.alive == 0 || err != nil {
 		t.kill(err)
 		if t.alive == 0 {
@@ -234,4 +238,14 @@ func (t *Tomb) Err() (reason error) {
 // Alive returns true if the tomb is not in a dying or dead state.
 func (t *Tomb) Alive() bool {
 	return t.Err() == ErrStillAlive
+}
+
+func (t *Tomb) AliveNames() []string {
+	result := make([]string, len(t.aliveNames))
+	i := 0
+	for name := range t.aliveNames {
+		result[i] = name
+		i++
+	}
+	return result
 }
